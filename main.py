@@ -338,11 +338,6 @@ def read_conf_file_to_database(repo):
     insert_to_DB(sup_lines, repo.insert_supplier, Supplier)
     insert_to_DB(vac_lines, repo.insert_vaccine, Vaccine)
 
-    print(repo.get_all_vaccines()[1].date)
-    print(repo.get_all_sups()[0].name)
-
-    x = 5
-
 
 def insert_to_DB(lines, insert_function, type):
     for v_line in lines:
@@ -357,6 +352,7 @@ def main():
     repo.create_tables()
     read_conf_file_to_database(repo)
     handle_orders(repo)
+    repo._close()
     # #  print(repo.get_new_vac_id())
     # #  print(repo.get_logID_from_supp_name('Moderna'))
     # orderTest = "Jerusalem,100".split(",")
