@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import sys
 
 
 class Clinic:
@@ -17,7 +18,7 @@ class _Clinics:
     def insert_clinic(self, Clinic):
         self._conn.execute("""
         INSERT INTO clinics (id, location, demand, logistic) VALUES (?, ?, ?, ?)
-                """, [Clinic.id, Clinic.location, Clinic.demand, Clinic.logistics]
+                """, [int(Clinic.id), Clinic.location, int(Clinic.demand), int(Clinic.logistics)]
                            )
 
 
@@ -36,7 +37,7 @@ class _Vaccines:
     def insert_vaccine(self, vaccine):
         self._conn.execute("""
         INSERT INTO vaccines (id, date, supplier, quantity) VALUES (?, ?, ?, ?)
-                """, [vaccine.id, vaccine.date, vaccine.supplier, vaccine.quantity]
+                """, [int(vaccine.id), vaccine.date, vaccine.supplier, int(vaccine.quantity)]
                            )
 
 
@@ -55,7 +56,7 @@ class _Logistics:
     def insert_logistic(self, logistic):
         self._conn.execute("""
         INSERT INTO logistics (id, name, count_sent, count_received) VALUES (?, ?, ?, ?)
-        """, [logistic.id, logistic.name, logistic.count_sent, logistic.count_received])
+        """, [int(logistic.id), logistic.name, int(logistic.count_sent), int(logistic.count_received)])
 
 
 class Supplier:
@@ -72,7 +73,7 @@ class _Suppliers:
     def insert_supplier(self, supplier):
         self._conn.execute("""
            INSERT INTO suppliers (id, name, logistic) VALUES (?, ?, ?)
-           """, [supplier.id, supplier.name, supplier.logistic])
+           """, [int(supplier.id), supplier.name, int(supplier.logistic)])
 
 
 class Repository:
@@ -83,20 +84,20 @@ class Repository:
         self.suppliers = _Suppliers(self._conn)
         self.clinics = _Clinics(self._conn)
 
-    def _close(self):
+    def close(self):
         self._conn.commit()
         self._conn.close()
 
     def create_tables(self):
         self._conn.executescript("""
-            
+
               create table logistics (
                     id      INTEGER     PRIMARY KEY,
                     name    TEXT        NOT NULL,
                     count_sent    INTEGER     NOT NULL,
                     count_received    INTEGER NOT NULL
                 );
-            
+
               CREATE TABLE vaccines (
                   id    INTEGER         PRIMARY KEY,
                   date  DATE        NOT NULL,
@@ -112,14 +113,14 @@ class Repository:
                   logistic    INTEGER,
                    FOREIGN KEY(logistic) REFERENCES logistics(id)
               );
-             
+
 
               CREATE TABLE suppliers (
                   id      INTEGER     PRIMARY KEY,
-                  name  INTEGER     NOT NULL,
+                  name  TEXT     NOT NULL,
                   logistic   INTEGER,
                    FOREIGN KEY(logistic) REFERENCES logistics(id)
-                   
+
               );
                  """)
 
@@ -209,7 +210,7 @@ class Repository:
         while amount > 0:
             c = self._conn.cursor()
             c.execute("""
-            SELECT * FROM vaccines ORDER BY date(date) DESC Limit 1
+            SELECT * FROM vaccines ORDER BY date(date) ASC Limit 1
             """)
             vac_attribute = c.fetchone()
             if vac_attribute[3] <= amount:  # amount to reduce is bigger than quantity of this batch
@@ -283,6 +284,13 @@ class Repository:
             summary += curr
         return summary
 
+    def get_suppID_from_supp_name(self, supp_name):
+        c = self._conn.cursor()
+        c.execute("""
+            SELECT id FROM suppliers WHERE name=(?)
+        """, [supp_name])
+        return c.fetchone()[0]
+
 
 def update_log(outputFile, repository):
     total_inventory = repository.get_total_inventory()
@@ -295,17 +303,22 @@ def update_log(outputFile, repository):
 # <total_inventory>,<total_demand>,<total_received>,<total_sent>
 
 def handle_orders(repo):
-    inputFile = open('orders.txt')
-    outputFile = open('output.txt', 'w')
+    inputFile = open(sys.argv[2])
+    outputFile = open(sys.argv[3], 'w')
     order_Lines = inputFile.read().split('\n')
     for line in order_Lines:
+        diDwrite = False
         order = line.split(",")
         if len(order) == 2:
+            diDwrite = True
             vaccine_to_clinic(order, repo)
-        else:
+        elif len(order) == 3:
+            diDwrite = True
             vaccine_to_inventory(order, repo)
         repo._conn.commit()
-        update_log(outputFile, repo)
+        if diDwrite:
+            update_log(outputFile, repo)
+    outputFile.close()
 
 
 def vaccine_to_clinic(order, repo):
@@ -318,17 +331,17 @@ def vaccine_to_clinic(order, repo):
 def vaccine_to_inventory(order, repository):
     # get logistic_id -> update logistics with new amount received -> insert new vaccine to vaccines table
     log_id = repository.get_logID_from_supp_name(order[0])
+    supp_id = repository.get_suppID_from_supp_name(order[0])
     repository.add_received_vaccines_to_logistic(log_id, int(order[1]))
-    repository.insert_vaccine(Vaccine(repository.get_new_vac_id(), order[2], order[0], order[1]))
+    repository.insert_vaccine(Vaccine(repository.get_new_vac_id(), order[2], supp_id, order[1]))
 
 
 def read_conf_file_to_database(repo):
-    inputFile = open('config.txt')
+    inputFile = open(sys.argv[1])
     numLine = inputFile.readline().replace('\n', "")
     nums = numLine.split(',')
     nums = [int(n) for n in nums]
     lines = inputFile.read().split('\n')
-    # TODO make readable
     vac_lines = lines[:nums[0]]
     sup_lines = lines[nums[0]:nums[0] + nums[1]]
     clinic_lines = lines[nums[0] + nums[1]:nums[0] + nums[1] + nums[2]]
@@ -342,34 +355,20 @@ def read_conf_file_to_database(repo):
 def insert_to_DB(lines, insert_function, type):
     for v_line in lines:
         v_params = v_line.split(',')
-        v = type(*v_params)
-        insert_function(v)
+        if len(v_params) > 1:
+            v = type(*v_params)
+            insert_function(v)
 
 
 def main():
-    os.remove('database.db')
+
     repo = Repository()
     repo.create_tables()
     read_conf_file_to_database(repo)
     handle_orders(repo)
-    repo._close()
-    # #  print(repo.get_new_vac_id())
-    # #  print(repo.get_logID_from_supp_name('Moderna'))
-    # orderTest = "Jerusalem,100".split(",")
-    # # vaccine_to_inventory(orderTest,repo)
-    # print(repo.get_all_clinic_demands())
-    # vaccine_to_clinic(orderTest, repo)
-    # print(repo.get_all_clinic_demands())
-    # print(repo.get_curr_amount_received(1))
-    #
-    # repo.add_received_vaccines_to_logistic(1, 20)
-    # print(repo.get_curr_amount_received(1))
-    # repo.add_received_vaccines_to_logistic(1, 30)
-    # print(repo.get_curr_amount_received(1))
-    #
-    # print(repo.get_all_clinic_demands())
+    repo.close()
+
 
 
 if __name__ == '__main__':
     main()
-    # ======================================================================================= test code
